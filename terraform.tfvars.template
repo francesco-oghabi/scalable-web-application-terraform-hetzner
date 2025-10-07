@@ -1,0 +1,18 @@
+environment = "staging"
+hcloud_token = ""
+ssh_key_name = "terraform-key"
+server_type = "cpx31"
+location = "nbg1"
+
+# Netdata monitoring credentials
+netdata_username = "admin"
+netdata_password = "admin"
+
+# Bastion Host
+ssh_bastion_private_key_path = ""
+bastion_host_server_type = "cpx11"
+bastion_host_server_name = "bastion-host"
+# Database Server
+mariadb_password = "magento"
+mariadb_root_password = ""
+mariadb_readonly_password = ""
