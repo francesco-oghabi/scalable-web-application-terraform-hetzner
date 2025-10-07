@@ -118,14 +118,14 @@ ssh_bastion_private_key_path = "~/.ssh/id_rsa"
 
 ### 2. Main Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `hcloud_token` | Hetzner Cloud API token | - |
-| `server_type` | Server type for private VMs | `cx22` |
-| `bastion_host_server_type` | Bastion server type | `cx11` |
-| `location` | Hetzner location | `nbg1` |
+| Variable | Description | Default         |
+|----------|-------------|-----------------|
+| `hcloud_token` | Hetzner Cloud API token | -               |
+| `server_type` | Server type for private VMs | `cx22`          |
+| `bastion_host_server_type` | Bastion server type | `cx11`          |
+| `location` | Hetzner location | `nbg1`          |
 | `network_name` | Private network name | `armah-network` |
-| `ssh_key_name` | SSH key name in Hetzner | `magefleet-pub` |
+| `ssh_key_name` | SSH key name in Hetzner | `key-pub`       |
 | `ssh_bastion_private_key_path` | Private SSH key path | `~/.ssh/id_rsa` |
 
 ## 🚀 Deployment

@@ -27,7 +27,7 @@ variable "server_type" {
 variable "ssh_key_name" {
   type        = string
   description = "The name of the SSH key you have added to your Hetzner project."
-  default     = "magefleet-pub"
+  default     = "key-pub"
 }
 
 variable "environment" {
