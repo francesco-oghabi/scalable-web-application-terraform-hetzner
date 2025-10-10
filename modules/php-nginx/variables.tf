@@ -49,3 +49,8 @@ variable "netdata_password" {
   description = "Password for Netdata basic auth"
   sensitive   = true
 }
+variable "php_nginx_static_ip" {
+  type        = string
+  description = "Static IP for PHP NGINX server in private network"
+  default     = "10.0.0.3"
+}

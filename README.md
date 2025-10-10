@@ -17,29 +17,29 @@ Infrastructure as Code (IaC) for automated deployment of a cloud architecture on
 ## 🏗 Architecture
 
 ```
-                              Internet
-                                 |
-                                 |
-                    ┌────────────▼───────────┐
-                    │   Bastion Host         │
-                    │   (NAT + DNS)          │
-                    │   Public IP: X.X.X.X   │
-                    │   Private IP: 10.0.0.2 │
-                    └────────────┬───────────┘
-                                 |
-                    ┌────────────▼───────────────┐
-                    │   Private Network          │
-                    │   10.0.0.0/16              │
-                    │   (Hetzner Cloud Network)  │
-                    └────────────┬───────────────┘
-                                 |
-              ┌──────────────────┼──────────────────┐
-              │                  │                  │
-     ┌────────▼────────┐ ┌──────▼──────┐  ┌───────▼────────┐
-     │  Database       │ │  PHP-Nginx  │  │  Other VMs     │
-     │  10.0.0.4       │ │  10.0.0.X   │  │  10.0.0.X      │
-     │  NO Public IP   │ │  NO Public  │  │  NO Public IP  │
-     └─────────────────┘ └─────────────┘  └────────────────┘
+                                 Internet
+                                    |
+                       ┌────────────▼────────────┐
+                       │   Bastion Host          │
+                       │   (NAT + DNS)           │
+                       │   Public IP: X.X.X.X    │
+                       │   Private IP: 10.0.0.2  │
+                       └────────────┬────────────┘
+                                    |
+                       ┌────────────▼────────────────┐
+                       │   Private Network           │
+                       │   10.0.0.0/16               │
+                       │   (Hetzner Cloud Network)   │
+                       └────────────┬────────────────┘
+                                    |
+          ┌─────────────────────────┼─────────────────────────┐
+          │             │            │            │            │
+   ┌──────▼──────┐ ┌───▼────┐ ┌────▼─────┐ ┌────▼────┐ ┌────▼────┐
+   │  Database   │ │PHP-Nginx│ │OpenSearch│ │  Redis  │ │RabbitMQ │
+   │  (MariaDB)  │ │         │ │          │ │  Cache  │ │  Queue  │
+   │  10.0.0.4   │ │10.0.0.3 │ │ 10.0.0.5 │ │10.0.0.6 │ │10.0.0.7 │
+   │ NO Public IP│ │NO Public│ │NO Public │ │NO Public│ │NO Public│
+   └─────────────┘ └─────────┘ └──────────┘ └─────────┘ └─────────┘
 ```
 
 ### Key Features:
@@ -55,30 +55,71 @@ Infrastructure as Code (IaC) for automated deployment of a cloud architecture on
 
 ### 1. Bastion Host
 - **Role**: NAT Gateway, DNS server (dnsmasq), SSH jump host
-- **Networking**: Public IP + Private IP (10.0.0.0/16)
+- **Networking**: Public IP + Private IP (10.0.0.2)
 - **Features**:
   - IP forwarding and NAT with iptables
   - dnsmasq for internal DNS
   - Internal SSH key for private server access
+  - Nginx reverse proxy for Netdata monitoring
 
-### 2. Database Server
+### 2. Database Server (MariaDB)
 - **Role**: Containerized MariaDB with Docker
-- **Networking**: Private IP only (no direct internet)
+- **IP Address**: 10.0.0.4 (Private only)
 - **Features**:
-  - MariaDB in Docker with data persistence
-  - Netdata for monitoring
-  - Nginx as reverse proxy for Netdata
+  - MariaDB in Docker with persistent storage
+  - Netdata monitoring with basic auth
+  - Nginx reverse proxy for Netdata
   - Read-only user for monitoring
+  - Automated backups support
 
-### 3. PHP-Nginx Server (Module)
+### 3. PHP-Nginx Server
 - **Role**: Application server
-- **Networking**: Private IP only
-- **Features**: Web server with PHP-FPM and Nginx
+- **IP Address**: 10.0.0.3 (Private only)
+- **Features**:
+  - Web server with PHP-FPM and Nginx
+  - Netdata monitoring
+  - Docker support
 
-### 4. Networking
+### 4. OpenSearch Server
+- **Role**: Full-text search and analytics engine
+- **IP Address**: 10.0.0.5 (Private only)
+- **Features**:
+  - OpenSearch in Docker with custom plugins
+  - Plugins: analysis-phonetic, analysis-icu
+  - Configurable heap size
+  - Single-node discovery mode
+  - Data persistence with volumes
+  - Netdata monitoring
+  - Security plugin disabled for simplicity
+
+### 5. Redis Server
+- **Role**: In-memory cache and data store
+- **IP Address**: 10.0.0.6 (Private only)
+- **Features**:
+  - Redis in Docker (version 7.2)
+  - Password authentication
+  - AOF (Append Only File) persistence
+  - Configurable max memory and eviction policy
+  - Netdata monitoring
+  - Data persistence with volumes
+
+### 6. RabbitMQ Server
+- **Role**: Message broker and queue system
+- **IP Address**: 10.0.0.7 (Private only)
+- **Features**:
+  - RabbitMQ in Docker with Management UI
+  - Web management interface (port 15672)
+  - AMQP protocol support (port 5672)
+  - Configurable users and permissions
+  - Erlang cookie for clustering support
+  - Netdata monitoring
+  - Data persistence with volumes
+
+### 7. Networking
 - **Private Network**: 10.0.0.0/16 (Hetzner Cloud Network)
-- **Route**: Traffic 0.0.0.0/0 → Bastion (NAT gateway)
-- **DNS**: Private servers use bastion (10.0.0.2/10.0.0.3) as nameserver
+- **Route**: All traffic 0.0.0.0/0 → Bastion (NAT gateway)
+- **DNS**: All private servers use bastion (10.0.0.2) as primary nameserver
+- **Isolation**: No private server has public IP - fully isolated from internet
 
 ## 📦 Prerequisites
 
@@ -100,33 +141,128 @@ cp terraform.tfvars.template terraform.tfvars
 Edit `terraform.tfvars` with your values:
 
 ```hcl
+# Hetzner Configuration
 hcloud_token              = "YOUR_HETZNER_API_TOKEN"
-server_type               = "cx22"
-bastion_host_server_name  = "bastion-host"
-bastion_host_server_type  = "cx11"
 location                  = "nbg1"
 
-# Passwords
-netdata_password              = "YOUR_STRONG_PASSWORD"
-mariadb_root_password         = "YOUR_STRONG_PASSWORD"
-mariadb_password              = "YOUR_STRONG_PASSWORD"
-mariadb_readonly_password     = "YOUR_STRONG_PASSWORD"
+# Server Types
+server_type               = "cx22"           # Database, PHP-Nginx
+bastion_host_server_type  = "cx11"           # Bastion Host
+opensearch_server_type    = "cx32"           # OpenSearch (needs more RAM)
+redis_server_type         = "cx22"           # Redis
+rabbit_server_type        = "cx22"           # RabbitMQ
 
-# SSH Key (optional, default: ~/.ssh/id_rsa)
-ssh_bastion_private_key_path = "~/.ssh/id_rsa"
+# Server Names
+bastion_host_server_name  = "bastion-host"
+
+# SSH Configuration
+ssh_key_name                    = "key-pub"
+ssh_bastion_private_key_path    = "~/.ssh/id_rsa"
+
+# Netdata Monitoring
+netdata_username          = "admin"
+netdata_password          = "YOUR_STRONG_PASSWORD"
+
+# MariaDB Configuration
+mariadb_version           = "latest"
+mariadb_root_password     = "YOUR_STRONG_PASSWORD"
+mariadb_password          = "YOUR_STRONG_PASSWORD"
+mariadb_readonly_password = "YOUR_STRONG_PASSWORD"
+
+# OpenSearch Configuration
+opensearch_version        = "latest"
+opensearch_cluster_name   = "opensearch-cluster"
+opensearch_admin_password = "YOUR_STRONG_PASSWORD"
+opensearch_heap_size      = "2g"             # Adjust based on server RAM
+opensearch_data_path      = "/var/lib/opensearch"
+
+# Redis Configuration
+redis_version             = "7.2"
+redis_password            = "YOUR_STRONG_PASSWORD"
+redis_maxmemory           = "512mb"          # Adjust based on server RAM
+redis_maxmemory_policy    = "allkeys-lru"
+
+# RabbitMQ Configuration
+rabbitmq_version          = "4.1"
+rabbitmq_user             = "admin"
+rabbitmq_password         = "YOUR_STRONG_PASSWORD"
+rabbitmq_erlang_cookie    = "CHANGE_THIS_COOKIE_VALUE"
 ```
 
 ### 2. Main Variables
 
+#### Infrastructure Variables
+
 | Variable | Description | Default         |
 |----------|-------------|-----------------|
-| `hcloud_token` | Hetzner Cloud API token | -               |
-| `server_type` | Server type for private VMs | `cx22`          |
-| `bastion_host_server_type` | Bastion server type | `cx11`          |
-| `location` | Hetzner location | `nbg1`          |
+| `hcloud_token` | Hetzner Cloud API token | **Required** |
+| `location` | Hetzner datacenter location | `nbg1` |
 | `network_name` | Private network name | `armah-network` |
-| `ssh_key_name` | SSH key name in Hetzner | `key-pub`       |
-| `ssh_bastion_private_key_path` | Private SSH key path | `~/.ssh/id_rsa` |
+| `ssh_key_name` | SSH key name in Hetzner Cloud | `key-pub` |
+| `ssh_bastion_private_key_path` | Local private SSH key path | `~/.ssh/id_rsa` |
+
+#### Server Types
+
+| Variable | Description | Default | Recommended |
+|----------|-------------|---------|-------------|
+| `server_type` | Server type for database & PHP-Nginx | `cx22` | cx22+ |
+| `bastion_host_server_type` | Bastion host server type | `cx11` | cx11 |
+| `opensearch_server_type` | OpenSearch server type | **Required** | cx32+ (4GB RAM min) |
+| `redis_server_type` | Redis server type | **Required** | cx22+ |
+| `rabbit_server_type` | RabbitMQ server type | **Required** | cx22+ |
+
+#### Static IP Addresses (Private Network)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `php_nginx_static_ip` | PHP-Nginx server IP | `10.0.0.3` |
+| `database_static_ip` | Database server IP | `10.0.0.4` |
+| `opensearch_static_ip` | OpenSearch server IP | `10.0.0.5` |
+| `redis_static_ip` | Redis server IP | `10.0.0.6` |
+| `rabbit_static_ip` | RabbitMQ server IP | `10.0.0.7` |
+
+#### Service Configuration
+
+**Netdata Monitoring:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `netdata_username` | Netdata basic auth username | `admin` |
+| `netdata_password` | Netdata basic auth password | **Required** |
+
+**MariaDB:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `mariadb_version` | MariaDB version | `latest` |
+| `mariadb_database` | Database name | `magento` |
+| `mariadb_user` | Database user | `magento` |
+| `mariadb_password` | Database user password | **Required** |
+| `mariadb_root_password` | Root password | **Required** |
+| `mariadb_readonly_password` | Read-only user password | **Required** |
+
+**OpenSearch:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `opensearch_version` | OpenSearch version | `latest` |
+| `opensearch_cluster_name` | Cluster name | `opensearch-cluster` |
+| `opensearch_admin_password` | Admin password | **Required** |
+| `opensearch_heap_size` | JVM heap size | `1g` |
+| `opensearch_data_path` | Data storage path | `/var/lib/opensearch` |
+
+**Redis:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `redis_version` | Redis version | `7.2` |
+| `redis_password` | Redis auth password | **Required** |
+| `redis_maxmemory` | Max memory limit | `512mb` |
+| `redis_maxmemory_policy` | Eviction policy | `allkeys-lru` |
+
+**RabbitMQ:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `rabbitmq_version` | RabbitMQ version | `4.1` |
+| `rabbitmq_user` | Admin username | `admin` |
+| `rabbitmq_password` | Admin password | **Required** |
+| `rabbitmq_erlang_cookie` | Erlang cookie for clustering | `CHANGEME_ERLANG_COOKIE` |
 
 ## 🚀 Deployment
 
@@ -148,22 +284,57 @@ terraform plan
 terraform apply --auto-approve
 ```
 
-Deployment takes **5-10 minutes**. Terraform will:
-1. Create the private network and subnet
-2. Generate internal SSH keys (RSA 4096-bit)
-3. Create the bastion host and wait for cloud-init completion
-4. Configure the route for internet via bastion
-5. Create private servers (database, php-nginx)
+Deployment takes **10-15 minutes**. Terraform will:
+1. Create the private network and subnet (10.0.0.0/16)
+2. Generate internal SSH keys (RSA 4096-bit) for bastion ↔ private servers
+3. Create the bastion host with NAT and DNS configuration
+4. Wait for bastion cloud-init completion
+5. Configure network routing (all traffic via bastion)
+6. Create all private servers in parallel:
+   - Database server (MariaDB) - 10.0.0.4
+   - PHP-Nginx server - 10.0.0.3
+   - OpenSearch server - 10.0.0.5
+   - Redis server - 10.0.0.6
+   - RabbitMQ server - 10.0.0.7
+7. Install and configure Docker on all servers
+8. Deploy services in Docker containers
+9. Configure Netdata monitoring on all servers
 
-### 4. Get server IPs
+**Note:** After deployment, all servers will automatically reboot once to apply final configurations.
+
+### 4. View deployment results
+
+After successful deployment, view the quick start guide:
 
 ```bash
-# Bastion public IP
-terraform output | grep bastion
+# View quick start guide with all server IPs and instructions
+terraform output quick_start
 
-# Private IPs
-terraform state show hcloud_server.bastion | grep network
-terraform state show 'module.database.hcloud_server.database_cluster_vm' | grep network
+# View all outputs
+terraform output
+
+# View specific server IPs
+terraform output bastion_public_ip
+terraform output database_server_private_ip
+terraform output opensearch_server_private_ip
+```
+
+### 5. Access service instructions
+
+Get detailed instructions for accessing each service:
+
+```bash
+# MariaDB Database instructions
+terraform output -raw database_instructions
+
+# OpenSearch instructions
+terraform output -raw opensearch_instructions
+
+# Redis instructions
+terraform output -raw redis_instructions
+
+# RabbitMQ instructions
+terraform output -raw rabbitmq_instructions
 ```
 
 ## 🔐 Connecting to Servers
@@ -176,69 +347,593 @@ ssh root@<bastion_public_ip>
 
 ### Private Servers (via bastion jump host)
 
-```bash
-# Database server
-ssh -J root@<bastion_public_ip> root@<database_private_ip>
+All private servers are accessible through the bastion host using SSH jump host (-J flag):
 
-# PHP-Nginx server
-ssh -J root@<bastion_public_ip> root@<php_nginx_private_ip>
+```bash
+# Database server (10.0.0.4)
+ssh -J root@<bastion_public_ip> root@10.0.0.4
+
+# PHP-Nginx server (10.0.0.3)
+ssh -J root@<bastion_public_ip> root@10.0.0.3
+
+# OpenSearch server (10.0.0.5)
+ssh -J root@<bastion_public_ip> root@10.0.0.5
+
+# Redis server (10.0.0.6)
+ssh -J root@<bastion_public_ip> root@10.0.0.6
+
+# RabbitMQ server (10.0.0.7)
+ssh -J root@<bastion_public_ip> root@10.0.0.7
 ```
 
 ### Direct connection from bastion to private servers
 
+When already connected to the bastion host, you can connect directly using the internal SSH key:
+
 ```bash
-# From bastion
-ssh -i /root/.ssh/id_rsa_internal root@<database_private_ip>
+# From bastion to any private server
+ssh -i /root/.ssh/id_rsa_internal root@10.0.0.4  # Database
+ssh -i /root/.ssh/id_rsa_internal root@10.0.0.5  # OpenSearch
+ssh -i /root/.ssh/id_rsa_internal root@10.0.0.6  # Redis
+ssh -i /root/.ssh/id_rsa_internal root@10.0.0.7  # RabbitMQ
 ```
+
+### SSH Config for easier access
+
+Add this to your local `~/.ssh/config` for simplified access:
+
+```
+Host hetzner-bastion
+    HostName <bastion_public_ip>
+    User root
+    IdentityFile ~/.ssh/id_rsa
+
+Host hetzner-db
+    HostName 10.0.0.4
+    User root
+    ProxyJump hetzner-bastion
+
+Host hetzner-opensearch
+    HostName 10.0.0.5
+    User root
+    ProxyJump hetzner-bastion
+
+Host hetzner-redis
+    HostName 10.0.0.6
+    User root
+    ProxyJump hetzner-bastion
+
+Host hetzner-rabbitmq
+    HostName 10.0.0.7
+    User root
+    ProxyJump hetzner-bastion
+```
+
+Then connect simply with:
+```bash
+ssh hetzner-db
+ssh hetzner-opensearch
+ssh hetzner-redis
+ssh hetzner-rabbitmq
+```
+
+## 🗄️ Accessing MariaDB Database
+
+MariaDB runs in a Docker container on the database server. Here are different ways to access it:
+
+### 1. Direct access from database server (via Docker)
+
+```bash
+# Connect to database server first
+ssh -J root@<bastion_public_ip> root@<database_private_ip>
+
+# Access MariaDB as root user (interactive password prompt)
+docker exec -it mariadb mariadb -uroot -p
+# Enter password: mariadb_root_password from terraform.tfvars
+
+# Access as application user (magento)
+docker exec -it mariadb mariadb -umagento -p
+# Enter password: mariadb_password from terraform.tfvars
+
+# Access as read-only user (monitoring)
+docker exec -it mariadb mariadb -ureadonly -p
+# Enter password: mariadb_readonly_password from terraform.tfvars
+```
+
+### 2. Execute queries without interactive prompt
+
+```bash
+# Show databases
+docker exec -it mariadb mariadb -uroot -p<PASSWORD> -e "SHOW DATABASES;"
+
+# List users
+docker exec -it mariadb mariadb -uroot -p<PASSWORD> -e "SELECT User, Host FROM mysql.user;"
+
+# Show tables in magento database
+docker exec -it mariadb mariadb -umagento -p<PASSWORD> magento -e "SHOW TABLES;"
+```
+
+### 3. Access via shell inside container
+
+```bash
+# Enter the container
+docker exec -it mariadb bash
+
+# Then inside the container
+mariadb -uroot -p
+# Enter password when prompted
+
+# Exit the container
+exit
+```
+
+### 4. From other servers in private network
+
+```bash
+# Install MariaDB client on the server first
+apt install mariadb-client -y
+
+# Connect from any server in 10.0.0.0/16 network
+mysql -h 10.0.0.4 -umagento -p
+# Enter password: mariadb_password
+```
+
+### 5. From your local machine (SSH tunnel)
+
+```bash
+# Create SSH tunnel (forward local port 3306 to database server)
+ssh -L 3306:10.0.0.4:3306 -J root@<bastion_public_ip> root@<database_private_ip>
+
+# In another terminal on your local machine
+mysql -h 127.0.0.1 -P 3306 -umagento -p
+# Or use any GUI client (e.g., DBeaver, MySQL Workbench) connecting to localhost:3306
+```
+
+### 6. Database operations
+
+```bash
+# Backup database
+docker exec mariadb mariadb-dump -uroot -p<PASSWORD> magento > backup_$(date +%Y%m%d).sql
+
+# Restore database
+docker exec -i mariadb mariadb -uroot -p<PASSWORD> magento < backup.sql
+
+# Check MariaDB container status
+docker ps | grep mariadb
+
+# View MariaDB logs
+docker logs mariadb
+
+# View last 100 lines of logs
+docker logs --tail 100 mariadb
+
+# Follow logs in real-time
+docker logs -f mariadb
+```
+
+**Note**: Replace `<PASSWORD>` with actual passwords from your `terraform.tfvars` file. For security, avoid using passwords in command line when possible - use interactive prompts instead.
+
+## 🔍 Accessing OpenSearch
+
+OpenSearch runs in a Docker container on the OpenSearch server (10.0.0.5). Access it via SSH tunnel or from other private servers.
+
+### 1. SSH tunnel for local access
+
+```bash
+# Create SSH tunnel
+ssh -L 9200:10.0.0.5:9200 -J root@<bastion_public_ip> root@10.0.0.5
+
+# In another terminal, access OpenSearch API
+curl -XGET "http://localhost:9200/_cluster/health?pretty"
+```
+
+### 2. Direct access from OpenSearch server
+
+```bash
+# Connect to OpenSearch server
+ssh -J root@<bastion_public_ip> root@10.0.0.5
+
+# Check cluster health
+curl -XGET "http://localhost:9200/_cluster/health?pretty"
+
+# List all indices
+curl -XGET "http://localhost:9200/_cat/indices?v"
+
+# Check installed plugins
+docker exec opensearch /usr/share/opensearch/bin/opensearch-plugin list
+```
+
+### 3. Common OpenSearch operations
+
+```bash
+# Create an index
+curl -XPUT "http://localhost:9200/my-index"
+
+# Index a document
+curl -XPOST "http://localhost:9200/my-index/_doc" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"John Doe","age":30}'
+
+# Search documents
+curl -XGET "http://localhost:9200/my-index/_search?pretty"
+
+# Delete an index
+curl -XDELETE "http://localhost:9200/my-index"
+```
+
+### 4. Container management
+
+```bash
+# View OpenSearch logs
+docker logs opensearch
+
+# Restart OpenSearch
+docker restart opensearch
+
+# View container stats
+docker stats opensearch --no-stream
+```
+
+**Detailed instructions**: After deployment, run `terraform output -raw opensearch_instructions` for complete access documentation.
+
+## 💾 Accessing Redis
+
+Redis runs in a Docker container on the Redis server (10.0.0.6) with password authentication.
+
+### 1. SSH tunnel for local access
+
+```bash
+# Create SSH tunnel
+ssh -L 6379:10.0.0.6:6379 -J root@<bastion_public_ip> root@10.0.0.6
+
+# In another terminal with redis-cli installed
+redis-cli -a 'YOUR_REDIS_PASSWORD'
+```
+
+### 2. Direct access from Redis server
+
+```bash
+# Connect to Redis server
+ssh -J root@<bastion_public_ip> root@10.0.0.6
+
+# Connect to Redis CLI
+docker exec -it redis redis-cli -a 'YOUR_REDIS_PASSWORD'
+
+# Test connection
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' PING
+```
+
+### 3. Common Redis commands
+
+```bash
+# Set a key
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' SET mykey "myvalue"
+
+# Get a key
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' GET mykey
+
+# List all keys
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' KEYS '*'
+
+# Set key with expiration (3600 seconds)
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' SETEX session:123 3600 "session_data"
+
+# Check memory usage
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' INFO memory
+```
+
+### 4. Backup and restore
+
+```bash
+# Manual backup (creates dump.rdb)
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' SAVE
+
+# Background backup
+docker exec redis redis-cli -a 'YOUR_REDIS_PASSWORD' BGSAVE
+
+# Copy backup to local machine
+docker cp redis:/data/dump.rdb /root/redis-backup-$(date +%Y%m%d).rdb
+scp -o ProxyJump=root@<bastion_public_ip> root@10.0.0.6:/root/redis-backup-*.rdb .
+```
+
+### 5. Access from applications
+
+```python
+# Python example
+import redis
+r = redis.Redis(host='10.0.0.6', port=6379, password='YOUR_REDIS_PASSWORD', decode_responses=True)
+r.set('key', 'value')
+print(r.get('key'))
+```
+
+**Detailed instructions**: After deployment, run `terraform output -raw redis_instructions` for complete access documentation.
+
+## 🐰 Accessing RabbitMQ
+
+RabbitMQ runs in a Docker container on the RabbitMQ server (10.0.0.7) with Management UI.
+
+### 1. Management UI access via SSH tunnel
+
+```bash
+# Create SSH tunnel
+ssh -L 15672:10.0.0.7:15672 -J root@<bastion_public_ip> root@10.0.0.7
+
+# Open browser
+http://localhost:15672
+```
+
+**Login credentials:**
+- Username: from `rabbitmq_user` in terraform.tfvars (default: admin)
+- Password: from `rabbitmq_password` in terraform.tfvars
+
+### 2. Direct access from RabbitMQ server
+
+```bash
+# Connect to RabbitMQ server
+ssh -J root@<bastion_public_ip> root@10.0.0.7
+
+# Check RabbitMQ status
+docker exec rabbitmq rabbitmqctl status
+
+# List queues
+docker exec rabbitmq rabbitmqctl list_queues
+
+# List users
+docker exec rabbitmq rabbitmqctl list_users
+
+# View logs
+docker logs rabbitmq
+```
+
+### 3. User and permission management
+
+```bash
+# Create a new user
+docker exec rabbitmq rabbitmqctl add_user myuser mypassword
+
+# Set user as administrator
+docker exec rabbitmq rabbitmqctl set_user_tags myuser administrator
+
+# Grant permissions
+docker exec rabbitmq rabbitmqctl set_permissions -p / myuser ".*" ".*" ".*"
+
+# Delete a user
+docker exec rabbitmq rabbitmqctl delete_user myuser
+```
+
+### 4. Connect from applications
+
+**AMQP Connection String:**
+```
+amqp://admin:YOUR_PASSWORD@10.0.0.7:5672/
+```
+
+**Python example:**
+```python
+import pika
+credentials = pika.PlainCredentials('admin', 'YOUR_PASSWORD')
+connection = pika.BlockingConnection(
+    pika.ConnectionParameters('10.0.0.7', 5672, '/', credentials)
+)
+channel = connection.channel()
+channel.queue_declare(queue='hello')
+```
+
+**Node.js example:**
+```javascript
+const amqp = require('amqplib');
+const connection = await amqp.connect('amqp://admin:YOUR_PASSWORD@10.0.0.7:5672/');
+const channel = await connection.createChannel();
+await channel.assertQueue('hello');
+```
+
+### 5. Backup and restore
+
+```bash
+# Export definitions (queues, exchanges, users, etc.)
+docker exec rabbitmq rabbitmqadmin export /tmp/rabbitmq-definitions.json
+docker cp rabbitmq:/tmp/rabbitmq-definitions.json /root/rabbitmq-backup-$(date +%Y%m%d).json
+
+# Copy to local machine
+scp -o ProxyJump=root@<bastion_public_ip> root@10.0.0.7:/root/rabbitmq-backup-*.json .
+```
+
+**Detailed instructions**: After deployment, run `terraform output -raw rabbitmq_instructions` for complete access documentation.
+
+## 📊 Accessing Netdata Monitoring
+
+The bastion host is configured with an Nginx reverse proxy to access Netdata monitoring dashboards of private servers.
+
+### Web Interface Access (Recommended)
+
+**Direct browser access** to Netdata monitoring:
+
+```bash
+# Open in browser
+http://<bastion_public_ip>:8080/
+
+# Direct access to database Netdata
+http://<bastion_public_ip>:8080/netdata-database/
+```
+
+**Authentication:**
+- Username: `admin` (from `netdata_username` in terraform.tfvars)
+- Password: from `netdata_password` in terraform.tfvars
+
+The landing page at `http://<bastion_public_ip>:8080/` shows a dashboard with links to all monitored servers.
+
+### Alternative: SSH Tunnel Access
+
+For more secure access without exposing port 8080 publicly:
+
+```bash
+# Create SSH tunnel
+ssh -L 8080:localhost:8080 root@<bastion_public_ip>
+
+# Open browser
+http://localhost:8080/
+```
+
+### Firewall Configuration (if needed)
+
+If you want to access the web interface from the internet, allow port 8080 on bastion:
+
+```bash
+# On bastion host
+ufw allow 8080/tcp
+```
+
+**Security Note**: The Netdata dashboards on backend servers are already protected with basic authentication. The reverse proxy forwards this authentication, so you'll be prompted for credentials when accessing the monitoring interfaces.
+
+### Available Endpoints
+
+- `http://<bastion_public_ip>:8080/` - Main dashboard with server links
+- `http://<bastion_public_ip>:8080/netdata-database/` - Database server monitoring
+- `http://<bastion_public_ip>:8080/health` - Health check endpoint (returns "OK")
 
 ## 📁 Project Structure
 
 ```
 .
-├── main.tf                      # Main configuration
-├── variables.tf                 # Variable definitions
+├── main.tf                      # Main infrastructure configuration
+├── variables.tf                 # Variable definitions for all modules
+├── outputs.tf                   # Infrastructure outputs with quick start guide
 ├── networks.tf                  # Private network and route configuration
 ├── provider.tf                  # Terraform providers (hcloud, tls, null)
-├── terraform.tfvars.template    # Variables template
+├── terraform.tfvars.template    # Variables template file
+├── reboot_all.sh                # Script to reboot all servers sequentially
 ├── .gitignore                   # Files to exclude from Git
 ├── templates/
-│   └── userdata_bastion.tpl     # Bastion cloud-init script
+│   └── userdata_bastion.tpl     # Bastion cloud-init configuration
 └── modules/
     ├── database/
-    │   ├── main.tf              # Database server
-    │   ├── variables.tf
-    │   ├── outputs.tf
+    │   ├── main.tf              # MariaDB database server
+    │   ├── variables.tf         # Database variables
+    │   ├── outputs.tf           # Database access instructions
     │   └── templates/
     │       ├── userdata_database.tpl       # Database cloud-init
     │       └── nginx_netdata.conf.tpl      # Netdata Nginx config
-    └── php-nginx/
-        ├── main.tf              # PHP-Nginx server
-        ├── variables.tf
+    ├── php-nginx/
+    │   ├── main.tf              # PHP-Nginx application server
+    │   ├── variables.tf         # PHP-Nginx variables
+    │   └── templates/
+    │       └── userdata_php_nginx.tpl      # PHP-Nginx cloud-init
+    ├── opensearch/
+    │   ├── main.tf              # OpenSearch search engine server
+    │   ├── variables.tf         # OpenSearch variables
+    │   ├── outputs.tf           # OpenSearch access instructions
+    │   └── templates/
+    │       ├── userdata_opensearch.tpl     # OpenSearch cloud-init
+    │       └── nginx_netdata.conf.tpl      # Netdata Nginx config
+    ├── redis/
+    │   ├── main.tf              # Redis cache server
+    │   ├── variables.tf         # Redis variables
+    │   ├── outputs.tf           # Redis access instructions
+    │   └── templates/
+    │       ├── userdata_redis.tpl          # Redis cloud-init
+    │       └── nginx_netdata.conf.tpl      # Netdata Nginx config
+    └── rabbitmq/
+        ├── main.tf              # RabbitMQ message broker server
+        ├── variables.tf         # RabbitMQ variables
+        ├── outputs.tf           # RabbitMQ access instructions
         └── templates/
-            └── userdata_php_nginx.tpl
+            ├── userdata_rabbit.tpl         # RabbitMQ cloud-init
+            └── nginx_netdata.conf.tpl      # Netdata Nginx config
 ```
 
 ## 🛠 Maintenance
 
-### View state
+### Viewing Infrastructure Information
 
 ```bash
+# View all infrastructure
 terraform show
+
+# View all outputs
+terraform output
+
+# View specific output
+terraform output bastion_public_ip
+terraform output database_server_private_ip
+
+# View quick start guide
+terraform output quick_start
 ```
 
-### Destroy infrastructure
+### Accessing Service Instructions
+
+After deployment, detailed access instructions are available for each service:
 
 ```bash
-terraform destroy
+# MariaDB Database instructions
+terraform output -raw database_instructions > database_instructions.txt
+cat database_instructions.txt
+
+# OpenSearch instructions (contains sensitive info)
+terraform output -raw opensearch_instructions > opensearch_instructions.txt
+cat opensearch_instructions.txt
+
+# Redis instructions (contains sensitive info)
+terraform output -raw redis_instructions > redis_instructions.txt
+cat redis_instructions.txt
+
+# RabbitMQ instructions (contains sensitive info)
+terraform output -raw rabbitmq_instructions > rabbitmq_instructions.txt
+cat rabbitmq_instructions.txt
 ```
 
-### Refresh state
+### Rebooting All Servers
+
+Use the provided `reboot_all.sh` script to safely reboot all servers in the correct sequence:
 
 ```bash
+# Make script executable
+chmod +x reboot_all.sh
+
+# Run the script
+./reboot_all.sh
+```
+
+**What the script does:**
+1. Fetches infrastructure information from Terraform outputs
+2. Asks for confirmation before proceeding
+3. Schedules reboot for database server (1 minute)
+4. Schedules reboot for OpenSearch server (1 minute)
+5. Schedules reboot for Redis server (1 minute)
+6. Schedules reboot for RabbitMQ server (1 minute)
+7. Schedules reboot for bastion host (3 minutes - last to reboot)
+8. Optionally waits and checks connectivity after reboot
+
+**Timeline:**
+- Private servers reboot after 1 minute
+- Bastion reboots after 3 minutes (to maintain connectivity)
+- All servers should be back online within 3-5 minutes
+
+### Updating Infrastructure
+
+```bash
+# Refresh state from remote
 terraform refresh
+
+# Apply configuration changes
+terraform apply
+
+# Force recreation of specific resource
+terraform taint module.database.hcloud_server.database_cluster_vm
+terraform apply
 ```
 
-### Debug connectivity
+### Destroy Infrastructure
+
+```bash
+# Destroy all infrastructure
+terraform destroy
+
+# Destroy specific module
+terraform destroy -target=module.opensearch
+```
+
+### Debug Connectivity
 
 **On bastion:**
 ```bash
@@ -249,18 +944,48 @@ cat /proc/sys/net/ipv4/ip_forward
 # Verify dnsmasq
 systemctl status dnsmasq
 netstat -tulpn | grep :53
+
+# Check internal SSH key
+ls -la /root/.ssh/id_rsa_internal
 ```
 
-**On database server:**
+**On private servers:**
 ```bash
 # Test internet connectivity
 ping -c 3 8.8.8.8
 
-# Test DNS
+# Test DNS resolution
 nslookup google.com
 
 # Verify routes
 ip route show
+
+# Check gateway
+ip route | grep default
+
+# Test connectivity to other services
+ping -c 3 10.0.0.4  # Database
+ping -c 3 10.0.0.5  # OpenSearch
+ping -c 3 10.0.0.6  # Redis
+ping -c 3 10.0.0.7  # RabbitMQ
+```
+
+**Docker troubleshooting:**
+```bash
+# Check all running containers
+docker ps -a
+
+# View container logs
+docker logs <container_name>
+
+# Check container resource usage
+docker stats --no-stream
+
+# Restart a service
+docker restart <container_name>
+
+# View container details
+docker inspect <container_name>
 ```
 
 ## 🤝 Contributing

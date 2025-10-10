@@ -1,9 +1,6 @@
 #!/bin/bash -x
 
-
-# --- NETWORK CONFIGURATION (Using the same correct method as the other private VM) ---
-
-# The hcloud_network_route resource will handle forwarding from there.
+# --- NETWORK CONFIGURATION ---
 cat > /etc/systemd/network/10-enp7s0.network << 'EOF'
 [Match]
 Name=enp7s0
@@ -24,16 +21,13 @@ EOF_RESOLVED
 
 echo "DNS configuration complete - using bastion DNS at ${bastion_private_ip}"
 
-
-
-# --- APPLY NETWORK CHANGES (Replaces Reboot) ---
+# --- APPLY NETWORK CHANGES ---
 echo "Restarting network services to apply changes..."
 systemctl restart systemd-networkd
 systemctl restart systemd-resolved
 echo "Network changes applied."
 
-
-# --- INTERNAL SSH KEY SETUP (New Requirement) ---
+# --- INTERNAL SSH KEY SETUP ---
 echo "Setting up internal SSH public key..."
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
@@ -41,13 +35,10 @@ echo "${internal_ssh_public_key}" >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 echo "Internal SSH key setup complete."
 
-
 apt update && apt upgrade -y
-
 
 # Nginx
 apt install nginx apache2-utils -y
-
 
 # Netdata per monitoring
 bash <(curl -Ss https://get.netdata.cloud/kickstart.sh) --non-interactive
@@ -104,46 +95,83 @@ apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
 systemctl enable docker
 systemctl start docker
 
-# Create directory for MariaDB data persistence
-mkdir -p /var/lib/mariadb
+# Create directories for OpenSearch data persistence
+mkdir -p ${opensearch_data_path}
+chmod 777 ${opensearch_data_path}
 
-# Run MariaDB container
+# Set vm.max_map_count for OpenSearch
+sysctl -w vm.max_map_count=262144
+echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+
+# Create custom opensearch.yml configuration
+mkdir -p /etc/opensearch
+cat > /etc/opensearch/opensearch.yml << 'EOF_OPENSEARCH_CONFIG'
+cluster.name: ${opensearch_cluster_name}
+node.name: opensearch-node1
+network.host: 0.0.0.0
+discovery.type: single-node
+
+# Security
+plugins.security.ssl.http.enabled: false
+
+# Memory settings
+indices.memory.index_buffer_size: 30%
+indices.memory.min_index_buffer_size: 96mb
+
+# Thread pool settings
+thread_pool.write.queue_size: 1000
+thread_pool.search.queue_size: 1000
+
+# Cache settings
+indices.queries.cache.size: 25%
+
+# Disk allocation
+cluster.routing.allocation.disk.threshold_enabled: false
+EOF_OPENSEARCH_CONFIG
+
+# Create Dockerfile for OpenSearch with plugins
+cat > /root/Dockerfile.opensearch << 'EOF_DOCKERFILE'
+FROM opensearchproject/opensearch:${opensearch_version}
+
+# Install plugins as opensearch user
+USER opensearch
+RUN /usr/share/opensearch/bin/opensearch-plugin install --batch analysis-phonetic
+RUN /usr/share/opensearch/bin/opensearch-plugin install --batch analysis-icu
+EOF_DOCKERFILE
+
+# Build custom OpenSearch image with plugins
+echo "Building custom OpenSearch image with plugins..."
+docker build -f /root/Dockerfile.opensearch -t opensearch-custom:${opensearch_version} /root/
+
+# Run OpenSearch container
+echo "Starting OpenSearch container..."
 docker run -d \
-  --name mariadb \
+  --name opensearch \
   --restart=unless-stopped \
-  -e MYSQL_ROOT_PASSWORD=${mariadb_root_password} \
-  -e MYSQL_DATABASE=${mariadb_database} \
-  -e MYSQL_USER=${mariadb_user} \
-  -e MYSQL_PASSWORD=${mariadb_password} \
-  -v /var/lib/mariadb:/var/lib/mysql \
-  -p 3306:3306 \
-  mariadb:${mariadb_version}
+  -e "discovery.type=single-node" \
+  -e "OPENSEARCH_JAVA_OPTS=-Xms${opensearch_heap_size} -Xmx${opensearch_heap_size}" \
+  -e "DISABLE_SECURITY_PLUGIN=true" \
+  -v ${opensearch_data_path}:/usr/share/opensearch/data \
+  -p 9200:9200 \
+  -p 9600:9600 \
+  opensearch-custom:${opensearch_version}
 
-# Wait for MariaDB to be ready
-echo "Waiting for MariaDB to start..."
+# Wait for OpenSearch to be ready
+echo "Waiting for OpenSearch to start..."
 sleep 30
-until docker exec mariadb mysqladmin ping -h localhost --silent; do
-  echo "Waiting for MariaDB to be ready..."
+until curl -XGET "http://localhost:9200/_cluster/health?pretty" -H 'Content-Type: application/json' 2>/dev/null; do
+  echo "Waiting for OpenSearch to be ready..."
   sleep 5
 done
 
-# Create read-only user for monitoring
-docker exec mariadb mysql -uroot -p${mariadb_root_password} -e "
-CREATE USER IF NOT EXISTS '${mariadb_readonly_user}'@'%' IDENTIFIED BY '${mariadb_readonly_password}';
-GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO '${mariadb_readonly_user}'@'%';
-FLUSH PRIVILEGES;
-"
+echo "OpenSearch is ready!"
 
-# Configure Netdata to monitor MariaDB
-mkdir -p /etc/netdata/go.d
-cat > /etc/netdata/go.d/mysql.conf << 'EOF'
-jobs:
-  - name: local
-    dsn: ${mariadb_readonly_user}:${mariadb_readonly_password}@tcp(127.0.0.1:3306)/
-    my_cnf: ""
-EOF
+# Verify installed plugins
+echo "Verifying installed plugins..."
+docker exec opensearch /usr/share/opensearch/bin/opensearch-plugin list
 
-# Restart Netdata to apply MySQL monitoring configuration
-systemctl restart netdata
+# Show cluster info
+echo "OpenSearch cluster information:"
+curl -XGET "http://localhost:9200/_cluster/health?pretty" -H 'Content-Type: application/json'
 
 reboot

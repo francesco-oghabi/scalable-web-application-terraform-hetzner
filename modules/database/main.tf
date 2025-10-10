@@ -25,7 +25,7 @@ resource "hcloud_server" "database_cluster_vm" {
   # Attach ONLY to the private network
   network {
     network_id = var.network_id
-
+    ip         = var.database_static_ip # Static IP for database server
   }
 
   # This server's only bootstrap requirement is to trust the internal
@@ -42,6 +42,7 @@ resource "hcloud_server" "database_cluster_vm" {
     mariadb_readonly_user     = var.mariadb_readonly_user
     mariadb_readonly_password = var.mariadb_readonly_password
     internal_ssh_public_key   = var.internal_ssh_public_key
+    mariadb_version           = var.mariadb_version
 
 
   })

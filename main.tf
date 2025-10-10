@@ -44,6 +44,11 @@ resource "hcloud_server" "bastion" {
   user_data = templatefile("${path.module}/templates/userdata_bastion.tpl", {
     private_network_ip_range = hcloud_network_subnet.private_subnet.ip_range
     internal_ssh_private_key = tls_private_key.internal_ssh_key.private_key_pem
+    php_nginx_static_ip      = var.php_nginx_static_ip
+    database_static_ip       = var.database_static_ip
+    opensearch_static_ip     = var.opensearch_static_ip
+    redis_static_ip          = var.redis_static_ip
+    rabbit_static_ip         = var.rabbit_static_ip
   })
 
   depends_on = [
@@ -74,32 +79,152 @@ resource "null_resource" "wait_for_bastion_cloud_init" {
 }
 
 module "php-nginx" {
-  source           = "./modules/php-nginx"
-  location         = var.location
-  network_id       = hcloud_network.private_net.id
-  server_type      = var.server_type
-  ssh_key_name     = var.ssh_key_name
-  hcloud_token     = var.hcloud_token
-  netdata_username = var.netdata_username
-  netdata_password = var.netdata_password
+  source              = "./modules/php-nginx"
+  location            = var.location
+  network_id          = hcloud_network.private_net.id
+  server_type         = var.server_type
+  ssh_key_name        = var.ssh_key_name
+  hcloud_token        = var.hcloud_token
+  php_nginx_static_ip = var.php_nginx_static_ip
+  netdata_username    = var.netdata_username
+  netdata_password    = var.netdata_password
 }
 
 module "database" {
   source = "./modules/database"
 
-  hcloud_token          = var.hcloud_token
-  location              = var.location
-  mariadb_password      = var.mariadb_password
-  mariadb_root_password = var.mariadb_root_password
-  netdata_password      = var.netdata_password
-  network_id            = hcloud_network.private_net.id
-  server_type           = var.server_type
-  ssh_key_name          = var.ssh_key_name
+  hcloud_token              = var.hcloud_token
+  location                  = var.location
+  mariadb_password          = var.mariadb_password
+  mariadb_root_password     = var.mariadb_root_password
+  netdata_password          = var.netdata_password
+  network_id                = hcloud_network.private_net.id
+  server_type               = var.server_type
+  ssh_key_name              = var.ssh_key_name
   mariadb_readonly_password = var.mariadb_readonly_password
-  internal_ssh_public_key = tls_private_key.internal_ssh_key.public_key_openssh
-  bastion_private_ip = one(hcloud_server.bastion.network).ip
+  internal_ssh_public_key   = tls_private_key.internal_ssh_key.public_key_openssh
+  bastion_private_ip        = one(hcloud_server.bastion.network).ip
+  database_static_ip        = var.database_static_ip
+  mariadb_version           = var.mariadb_version
 
   depends_on = [
     null_resource.wait_for_bastion_cloud_init
   ]
 }
+
+
+module "opensearch" {
+  source = "./modules/opensearch"
+
+  hcloud_token              = var.hcloud_token
+  location                  = var.location
+  netdata_password          = var.netdata_password
+  network_id                = hcloud_network.private_net.id
+  server_type               = var.opensearch_server_type
+  ssh_key_name              = var.ssh_key_name
+  internal_ssh_public_key   = tls_private_key.internal_ssh_key.public_key_openssh
+  bastion_private_ip        = one(hcloud_server.bastion.network).ip
+  opensearch_static_ip      = var.opensearch_static_ip
+  opensearch_version        = var.opensearch_version
+  opensearch_cluster_name   = var.opensearch_cluster_name
+  opensearch_admin_password = var.opensearch_admin_password
+  opensearch_heap_size      = var.opensearch_heap_size
+  opensearch_data_path      = var.opensearch_data_path
+
+  depends_on = [
+    null_resource.wait_for_bastion_cloud_init
+  ]
+}
+
+module "redis" {
+  source = "./modules/redis"
+
+  hcloud_token            = var.hcloud_token
+  location                = var.location
+  netdata_password        = var.netdata_password
+  network_id              = hcloud_network.private_net.id
+  server_type             = var.redis_server_type
+  ssh_key_name            = var.ssh_key_name
+  internal_ssh_public_key = tls_private_key.internal_ssh_key.public_key_openssh
+  bastion_private_ip      = one(hcloud_server.bastion.network).ip
+  redis_static_ip         = var.redis_static_ip
+  redis_version           = var.redis_version
+  redis_password          = var.redis_password
+  redis_maxmemory         = var.redis_maxmemory
+  redis_maxmemory_policy  = var.redis_maxmemory_policy
+
+  depends_on = [
+    null_resource.wait_for_bastion_cloud_init
+  ]
+}
+
+module "rabbitmq" {
+  source = "./modules/rabbit"
+
+  hcloud_token            = var.hcloud_token
+  location                = var.location
+  netdata_password        = var.netdata_password
+  network_id              = hcloud_network.private_net.id
+  rabbit_server_type      = var.rabbit_server_type
+  ssh_key_name            = var.ssh_key_name
+  internal_ssh_public_key = tls_private_key.internal_ssh_key.public_key_openssh
+  bastion_private_ip      = one(hcloud_server.bastion.network).ip
+  rabbit_static_ip        = var.rabbit_static_ip
+  rabbitmq_version        = var.rabbitmq_version
+  rabbitmq_user           = var.rabbitmq_user
+  rabbitmq_password       = var.rabbitmq_password
+  rabbitmq_erlang_cookie  = var.rabbitmq_erlang_cookie
+
+  depends_on = [
+    null_resource.wait_for_bastion_cloud_init
+  ]
+}
+
+
+# (Optional) Reboot all servers after infrastructure is fully deployed
+# Uncomment this resource if you want automatic reboot after deployment
+/*
+resource "null_resource" "reboot_all_servers" {
+  # Reboot bastion
+  provisioner "remote-exec" {
+    connection {
+      type        = "ssh"
+      host        = hcloud_server.bastion.ipv4_address
+      user        = "root"
+      private_key = file(var.ssh_bastion_private_key_path)
+      timeout     = "5m"
+    }
+
+    inline = [
+      "echo 'Scheduling bastion reboot in 1 minute...'",
+      "shutdown -r +1 'Terraform triggered reboot' &",
+      "exit 0"
+    ]
+  }
+
+  # Reboot database server (via bastion)
+  provisioner "remote-exec" {
+    connection {
+      type         = "ssh"
+      host         = var.database_static_ip
+      user         = "root"
+      private_key  = file(var.ssh_bastion_private_key_path)
+      bastion_host = hcloud_server.bastion.ipv4_address
+      bastion_user = "root"
+      timeout      = "5m"
+    }
+
+    inline = [
+      "echo 'Scheduling database server reboot in 1 minute...'",
+      "shutdown -r +1 'Terraform triggered reboot' &",
+      "exit 0"
+    ]
+  }
+
+  depends_on = [
+    module.database,
+    module.php-nginx,
+    null_resource.wait_for_bastion_cloud_init
+  ]
+}
+*/

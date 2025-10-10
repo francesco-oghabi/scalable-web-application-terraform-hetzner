@@ -25,6 +25,7 @@ resource "hcloud_server" "php_nginx_cluster_vm" {
   # Attach ONLY to the private network
   network {
     network_id = var.network_id
+    ip = var.php_nginx_static_ip
 
   }
 

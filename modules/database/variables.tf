@@ -98,3 +98,15 @@ variable "bastion_private_ip" {
   type        = string
   description = "Internal SSH public key"
 }
+
+variable "database_static_ip" {
+  type        = string
+  description = "Static IP for database server in private network"
+  default     = "10.0.0.4"
+}
+
+variable "mariadb_version" {
+  type        = string
+  description = "MariaDB Version"
+  default     = "latest"
+}

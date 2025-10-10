@@ -1,9 +1,6 @@
 #!/bin/bash -x
 
-
-# --- NETWORK CONFIGURATION (Using the same correct method as the other private VM) ---
-
-# The hcloud_network_route resource will handle forwarding from there.
+# --- NETWORK CONFIGURATION ---
 cat > /etc/systemd/network/10-enp7s0.network << 'EOF'
 [Match]
 Name=enp7s0
@@ -24,16 +21,13 @@ EOF_RESOLVED
 
 echo "DNS configuration complete - using bastion DNS at ${bastion_private_ip}"
 
-
-
-# --- APPLY NETWORK CHANGES (Replaces Reboot) ---
+# --- APPLY NETWORK CHANGES ---
 echo "Restarting network services to apply changes..."
 systemctl restart systemd-networkd
 systemctl restart systemd-resolved
 echo "Network changes applied."
 
-
-# --- INTERNAL SSH KEY SETUP (New Requirement) ---
+# --- INTERNAL SSH KEY SETUP ---
 echo "Setting up internal SSH public key..."
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
@@ -41,13 +35,10 @@ echo "${internal_ssh_public_key}" >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 echo "Internal SSH key setup complete."
 
-
 apt update && apt upgrade -y
-
 
 # Nginx
 apt install nginx apache2-utils -y
-
 
 # Netdata per monitoring
 bash <(curl -Ss https://get.netdata.cloud/kickstart.sh) --non-interactive
@@ -104,46 +95,37 @@ apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
 systemctl enable docker
 systemctl start docker
 
-# Create directory for MariaDB data persistence
-mkdir -p /var/lib/mariadb
-
-# Run MariaDB container
+# Run RabbitMQ container
+echo "Starting RabbitMQ container..."
 docker run -d \
-  --name mariadb \
+  --name rabbitmq \
   --restart=unless-stopped \
-  -e MYSQL_ROOT_PASSWORD=${mariadb_root_password} \
-  -e MYSQL_DATABASE=${mariadb_database} \
-  -e MYSQL_USER=${mariadb_user} \
-  -e MYSQL_PASSWORD=${mariadb_password} \
-  -v /var/lib/mariadb:/var/lib/mysql \
-  -p 3306:3306 \
-  mariadb:${mariadb_version}
+  --hostname rabbitmq-node \
+  -p 5672:5672 \
+  -p 15672:15672 \
+  -e RABBITMQ_DEFAULT_USER=${rabbitmq_user} \
+  -e RABBITMQ_DEFAULT_PASS=${rabbitmq_password} \
+  -e RABBITMQ_ERLANG_COOKIE=${rabbitmq_erlang_cookie} \
+  -v rabbitmq_data:/var/lib/rabbitmq \
+  rabbitmq:${rabbitmq_version}-management
 
-# Wait for MariaDB to be ready
-echo "Waiting for MariaDB to start..."
+# Wait for RabbitMQ to be ready
+echo "Waiting for RabbitMQ to start..."
 sleep 30
-until docker exec mariadb mysqladmin ping -h localhost --silent; do
-  echo "Waiting for MariaDB to be ready..."
+
+# Test RabbitMQ connection
+echo "Testing RabbitMQ connection..."
+until docker exec rabbitmq rabbitmqctl status 2>/dev/null; do
+  echo "Waiting for RabbitMQ to be ready..."
   sleep 5
 done
 
-# Create read-only user for monitoring
-docker exec mariadb mysql -uroot -p${mariadb_root_password} -e "
-CREATE USER IF NOT EXISTS '${mariadb_readonly_user}'@'%' IDENTIFIED BY '${mariadb_readonly_password}';
-GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO '${mariadb_readonly_user}'@'%';
-FLUSH PRIVILEGES;
-"
+# Show RabbitMQ status
+echo "RabbitMQ is ready!"
+docker exec rabbitmq rabbitmqctl status
+docker exec rabbitmq rabbitmqctl cluster_status
 
-# Configure Netdata to monitor MariaDB
-mkdir -p /etc/netdata/go.d
-cat > /etc/netdata/go.d/mysql.conf << 'EOF'
-jobs:
-  - name: local
-    dsn: ${mariadb_readonly_user}:${mariadb_readonly_password}@tcp(127.0.0.1:3306)/
-    my_cnf: ""
-EOF
-
-# Restart Netdata to apply MySQL monitoring configuration
-systemctl restart netdata
+echo "RabbitMQ Management UI available at http://SERVER_IP:15672"
+echo "Login with username: ${rabbitmq_user}"
 
 reboot
