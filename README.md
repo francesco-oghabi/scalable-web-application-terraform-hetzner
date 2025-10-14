@@ -10,6 +10,12 @@ Infrastructure as Code (IaC) for automated deployment of a cloud architecture on
 - [Configuration](#-configuration)
 - [Deployment](#-deployment)
 - [Connecting to Servers](#-connecting-to-servers)
+- [Accessing MariaDB Database](#-accessing-mariadb-database)
+- [Accessing OpenSearch](#-accessing-opensearch)
+- [Accessing Redis](#-accessing-redis)
+- [Accessing RabbitMQ](#-accessing-rabbitmq)
+- [Configuring SSL/TLS Certificates](#-configuring-ssltls-certificates-php-nginx-server)
+- [Accessing Netdata Monitoring](#-accessing-netdata-monitoring)
 - [Project Structure](#-project-structure)
 - [Maintenance](#-maintenance)
 - [Contributing](#-contributing)
@@ -76,9 +82,12 @@ Infrastructure as Code (IaC) for automated deployment of a cloud architecture on
 - **Role**: Application server
 - **IP Address**: 10.0.0.3 (Private only)
 - **Features**:
-  - Web server with PHP-FPM and Nginx
+  - Web server with PHP 8.3-FPM and Nginx
+  - Certbot for SSL/TLS certificates (Let's Encrypt)
+  - Composer for PHP dependency management
   - Netdata monitoring
   - Docker support
+  - Magento user with sudo permissions for CLI commands
 
 ### 4. OpenSearch Server
 - **Role**: Full-text search and analytics engine
@@ -739,6 +748,255 @@ scp -o ProxyJump=root@<bastion_public_ip> root@10.0.0.7:/root/rabbitmq-backup-*.
 ```
 
 **Detailed instructions**: After deployment, run `terraform output -raw rabbitmq_instructions` for complete access documentation.
+
+## 🔒 Configuring SSL/TLS Certificates (PHP-Nginx Server)
+
+The PHP-Nginx server (10.0.0.3) comes with certbot pre-installed for managing SSL/TLS certificates from Let's Encrypt.
+
+### Prerequisites
+
+Before obtaining an SSL certificate, ensure:
+1. You have a domain name pointing to your server's public IP
+2. Port 80 (HTTP) is accessible for domain validation
+3. You are connected to the PHP-Nginx server
+
+
+### 1. Obtain SSL Certificate (Interactive)
+
+The easiest method - certbot automatically configures Nginx:
+
+```bash
+# Replace with your domain(s)
+certbot --nginx -d example.com -d www.example.com
+```
+
+**What this command does:**
+- Validates domain ownership via HTTP challenge
+- Obtains SSL certificate from Let's Encrypt
+- Automatically configures Nginx with HTTPS
+- Sets up HTTP to HTTPS redirect
+- Configures HSTS and security headers
+
+**During the process you'll be asked:**
+1. Email address (for renewal notifications)
+2. Agree to Terms of Service
+3. Whether to redirect HTTP to HTTPS (recommended: yes)
+
+### 2. Obtain Certificate (Manual - Advanced)
+
+For more control over Nginx configuration:
+
+```bash
+# Obtain certificate only, without automatic Nginx configuration
+certbot certonly --nginx -d example.com -d www.example.com
+
+# Or use webroot authentication
+certbot certonly --webroot -w /var/www/html -d example.com -d www.example.com
+```
+
+Then manually configure your Nginx site:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name example.com www.example.com;
+
+    # SSL certificate paths (certbot generated)
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # HSTS (optional but recommended)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Your application configuration
+    root /var/www/html;
+    index index.php index.html;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com www.example.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+Test and reload Nginx:
+
+```bash
+nginx -t && systemctl reload nginx
+```
+
+### 3. Certificate Management
+
+**View installed certificates:**
+```bash
+certbot certificates
+```
+
+**Renew certificates manually:**
+```bash
+# Dry run (test renewal without actually renewing)
+certbot renew --dry-run
+
+# Actual renewal
+certbot renew
+```
+
+**Automatic renewal:**
+
+Certbot automatically installs a systemd timer for renewal. Check status:
+
+```bash
+# Check renewal timer status
+systemctl status certbot.timer
+
+# View next renewal time
+systemctl list-timers | grep certbot
+
+# Test automatic renewal
+certbot renew --dry-run
+```
+
+The renewal timer runs twice daily and automatically renews certificates within 30 days of expiration.
+
+**Renew specific certificate:**
+```bash
+certbot renew --cert-name example.com
+```
+
+### 4. Revoke and Delete Certificate
+
+**Revoke certificate:**
+```bash
+certbot revoke --cert-path /etc/letsencrypt/live/example.com/cert.pem
+```
+
+**Delete certificate:**
+```bash
+certbot delete --cert-name example.com
+```
+
+### 5. Using SSL with Reverse Proxy (Bastion)
+
+If you want to expose your PHP-Nginx server through the bastion host, configure Nginx on the bastion as a reverse proxy:
+
+**On bastion host** (10.0.0.2):
+
+```bash
+# Install certbot on bastion if not already installed
+apt install certbot python3-certbot-nginx -y
+
+# Obtain certificate for your domain
+certbot --nginx -d example.com -d www.example.com
+```
+
+**Create reverse proxy configuration** on bastion (`/etc/nginx/sites-available/app`):
+
+```nginx
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name example.com www.example.com;
+
+    # SSL certificate (managed by certbot)
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    # Reverse proxy to PHP-Nginx server
+    location / {
+        proxy_pass http://10.0.0.3;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $server_name;
+    }
+}
+
+# HTTP redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com www.example.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+Enable and test:
+
+```bash
+ln -s /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app
+nginx -t && systemctl reload nginx
+```
+
+### 6. Troubleshooting
+
+**Check PHP-FPM status:**
+```bash
+systemctl status php8.3-fpm
+```
+
+**Check certificate expiration:**
+```bash
+certbot certificates
+```
+
+**View certbot logs:**
+```bash
+tail -f /var/log/letsencrypt/letsencrypt.log
+```
+
+**Test SSL configuration:**
+```bash
+# Online SSL test (use browser)
+# https://www.ssllabs.com/ssltest/
+
+# Command line test
+openssl s_client -connect example.com:443 -servername example.com
+```
+
+**Common issues:**
+
+1. **Port 80 not accessible**: Ensure firewall allows HTTP traffic for domain validation
+2. **DNS not pointing to server**: Verify A/AAAA records point to correct IP
+3. **Certificate limit reached**: Let's Encrypt has rate limits (50 certificates per domain per week)
+4. **PHP-FPM not running**: Check with `systemctl status php8.3-fpm` and restart if needed
+
+### 7. Best Practices
+
+1. **Use HTTP to HTTPS redirect**: Always redirect HTTP traffic to HTTPS
+2. **Enable HSTS**: Adds `Strict-Transport-Security` header for enhanced security
+3. **Monitor expiration**: Set up monitoring alerts for certificate expiration (even with auto-renewal)
+4. **Test renewal regularly**: Run `certbot renew --dry-run` monthly
+5. **Backup certificates**: Include `/etc/letsencrypt` in backup strategy
+6. **Use strong SSL configuration**: Follow Mozilla SSL Configuration Generator recommendations
+
+**Certificate locations:**
+- Certificates: `/etc/letsencrypt/live/<domain>/`
+- Configuration: `/etc/letsencrypt/`
+- Renewal configs: `/etc/letsencrypt/renewal/<domain>.conf`
+- Logs: `/var/log/letsencrypt/`
 
 ## 📊 Accessing Netdata Monitoring
 

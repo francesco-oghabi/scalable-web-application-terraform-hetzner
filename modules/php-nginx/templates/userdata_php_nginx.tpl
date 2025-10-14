@@ -5,6 +5,7 @@ apt update && apt upgrade -y
 # Nginx
 apt install nginx apache2-utils -y
 
+
 # Php
 # dom  simplexml  xmlwriter --> xml
 # ctype sockets pdo, iconv, ftp, fileinfo tokenizer -> common
@@ -16,6 +17,14 @@ apt install php8.3 php8.3-cli php8.3-fpm php8.3-common \
     php8.3-intl php8.3-mbstring \
     php8.3-mysql php8.3-zip php8.3-soap \
      php8.3-xml  php8.3-xsl   -y
+
+# Enable and start PHP-FPM
+systemctl enable php8.3-fpm
+systemctl start php8.3-fpm
+
+
+# Certbot for SSL certificates
+apt install certbot python3-certbot-nginx -y
 
 # Install Composer
 echo "Installing Composer..."

@@ -33,3 +33,54 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Video production files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.m4v
+
+# Audio files
+*.mp3
+*.wav
+*.aac
+*.ogg
+*.flac
+*.m4a
+*.wma
+
+# Image assets for video
+*.psd
+*.ai
+*.xcf
+*.sketch
+
+# Video project files
+*.prproj          # Adobe Premiere
+*.aep             # After Effects
+*.fcpbundle       # Final Cut Pro
+*.drp             # DaVinci Resolve
+*.resolve         # DaVinci Resolve
+
+# Screen recording
+*.cast            # asciinema
+*.tape            # VHS
+*.gif             # animated GIFs
+
+# Subtitles and captions
+*.srt
+*.vtt
+*.sub
+*.ass
+
+# Thumbnails and preview
+*_thumb.*
+*_preview.*
+
+# Video scripts and notes
+video_scripts/
+production_notes/
