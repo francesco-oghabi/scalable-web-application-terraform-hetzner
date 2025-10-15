@@ -22,6 +22,12 @@ apt install php8.3 php8.3-cli php8.3-fpm php8.3-common \
 systemctl enable php8.3-fpm
 systemctl start php8.3-fpm
 
+# Create common upstream configuration for all sites
+cat > /etc/nginx/conf.d/upstream.conf << 'EOF_UPSTREAM'
+upstream fastcgi_backend {
+    server unix:/run/php/php8.3-fpm.sock;
+}
+EOF_UPSTREAM
 
 # Certbot for SSL certificates
 apt install certbot python3-certbot-nginx -y
@@ -108,11 +114,9 @@ chown -R www-data:www-data /var/www/html
 # Configure sudo for magento user to run Magento CLI commands
 cat > /etc/sudoers.d/magento << 'EOF_MAGENTO_SUDO'
 # Allow magento user to run Magento CLI commands
-magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/bin/magento setup:upgrade*
-magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/bin/magento setup:di:compile*
-magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/bin/magento setup:static-content:deploy*
-magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/bin/magento cache:*
-magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/bin/magento indexer:*
+# Note: Not specifying arguments allows any arguments to be passed
+magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/*/bin/magento *
+magento ALL=(www-data) NOPASSWD: /usr/bin/php /var/www/html/bin/magento
 EOF_MAGENTO_SUDO
 
 # Set proper permissions on sudoers file

@@ -504,8 +504,14 @@ mysql -h 127.0.0.1 -P 3306 -umagento -p
 # Backup database
 docker exec mariadb mariadb-dump -uroot -p<PASSWORD> magento > backup_$(date +%Y%m%d).sql
 
-# Restore database
+# Restore database (IMPORTANT: use -i flag only, NOT -it)
 docker exec -i mariadb mariadb -uroot -p<PASSWORD> magento < backup.sql
+
+# Alternative: specify password inline (less secure, but works without prompt)
+docker exec -i mariadb mariadb -uroot -pYOUR_PASSWORD database_name < backup.sql
+
+# Alternative: using mysql command instead of mariadb
+docker exec -i mariadb mysql -uroot -pYOUR_PASSWORD database_name < backup.sql
 
 # Check MariaDB container status
 docker ps | grep mariadb
@@ -520,7 +526,62 @@ docker logs --tail 100 mariadb
 docker logs -f mariadb
 ```
 
+**Important note about TTY flag:**
+- When importing from a file with `<`, use `-i` flag ONLY (NOT `-it`)
+- The `-t` flag allocates a pseudo-TTY which conflicts with stdin redirection
+- Error "the input device is not a TTY" means you used `-it` when you should use only `-i`
+
 **Note**: Replace `<PASSWORD>` with actual passwords from your `terraform.tfvars` file. For security, avoid using passwords in command line when possible - use interactive prompts instead.
+
+### 7. Transferring database dumps via bastion
+
+When transferring SQL dump files from your local machine to the database server, you need to use a two-step process because the internal SSH key (`id_rsa_internal`) only exists on the bastion host.
+
+**Transfer dump file from local machine to database server:**
+
+```bash
+# Replace 'dumpfile.sql' with your dump filename
+# Replace 'hetzner-bastion' with your SSH config alias or use root@<bastion_public_ip>
+rsync -avzh dumpfile.sql hetzner-bastion:/tmp/ && \
+  ssh hetzner-bastion "rsync -avzh -e 'ssh -i /root/.ssh/id_rsa_internal -o StrictHostKeyChecking=no' /tmp/dumpfile.sql root@10.0.0.4:/root/ && rm /tmp/dumpfile.sql"
+```
+
+**What this command does:**
+1. Copies the dump file from your local machine to the bastion host (`/tmp/`)
+2. From the bastion, copies the file to the database server using the internal SSH key
+3. Removes the temporary file from the bastion
+
+**Then import the dump on the database server:**
+
+```bash
+# Connect to database server
+ssh -J hetzner-bastion root@10.0.0.4
+
+# Import the dump into MariaDB
+docker exec -i mariadb mariadb -uroot -p<PASSWORD> database_name < /root/dumpfile.sql
+
+# Clean up the dump file
+rm /root/dumpfile.sql
+```
+
+**Alternative: One-line import after transfer:**
+
+```bash
+# Transfer and import in one command
+rsync -avzh dumpfile.sql hetzner-bastion:/tmp/ && \
+  ssh hetzner-bastion "rsync -avzh -e 'ssh -i /root/.ssh/id_rsa_internal' /tmp/dumpfile.sql root@10.0.0.4:/tmp/ && \
+  ssh -i /root/.ssh/id_rsa_internal root@10.0.0.4 'docker exec -i mariadb mariadb -uroot -pPASSWORD database_name < /tmp/dumpfile.sql && rm /tmp/dumpfile.sql' && \
+  rm /tmp/dumpfile.sql"
+```
+
+**Download dump from database server to local machine:**
+
+```bash
+# Create dump on database server and download
+ssh -J hetzner-bastion root@10.0.0.4 "docker exec mariadb mariadb-dump -uroot -p<PASSWORD> database_name > /tmp/dump.sql"
+rsync -avzh -e "ssh -J hetzner-bastion" root@10.0.0.4:/tmp/dump.sql ./
+ssh -J hetzner-bastion root@10.0.0.4 "rm /tmp/dump.sql"
+```
 
 ## 🔍 Accessing OpenSearch
 
