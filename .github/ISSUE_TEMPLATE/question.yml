@@ -1,0 +1,123 @@
+name: Question / Help
+description: Ask a question or get help with configuration
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Need help? We're here to assist! Please provide details about your question below.
+
+        **Note**: For security vulnerabilities, please use the [Security Policy](../SECURITY.md) instead.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please verify the following before asking
+      options:
+        - label: I have read the README documentation
+          required: true
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: This is not a security vulnerability (use SECURITY.md for that)
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What is your question about?
+      options:
+        - Initial Setup / Installation
+        - Configuration / Variables
+        - Networking / Connectivity
+        - Bastion Host
+        - Database (MariaDB)
+        - PHP-Nginx Server
+        - OpenSearch
+        - Redis
+        - RabbitMQ
+        - SSL/TLS Certificates
+        - Monitoring (Netdata)
+        - Deployment / Apply Issues
+        - SSH Access / Jump Host
+        - Security / Best Practices
+        - Maintenance / Updates
+        - Hetzner Cloud Specific
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: Describe your question in detail
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to accomplish?
+      placeholder: Describe what you're trying to achieve and why
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What Have You Tried?
+      description: What steps have you already taken to solve this?
+      placeholder: |
+        1. I tried...
+        2. I also tried...
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment (if relevant)
+      description: Provide environment details if applicable
+      value: |
+        - Terraform Version:
+        - Operating System:
+        - Component:
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Relevant Configuration (if applicable)
+      description: Share relevant configuration (REMOVE SENSITIVE DATA!)
+      placeholder: |
+        # Paste relevant configuration here
+        # Remove all sensitive information!
+      render: hcl
+    validations:
+      required: false
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output/Error Messages (if applicable)
+      description: Share any relevant output or error messages
+      placeholder: Paste command output here
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other details that might be helpful
+      placeholder: Add any additional context, screenshots, or information
+    validations:
+      required: false

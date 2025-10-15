@@ -1377,3 +1377,5 @@ This project is distributed under the MIT License. See the `LICENSE` file for mo
 ---
 
 **Note**: This project is provided "as-is" without warranties. Use at your own risk. Make sure you understand the costs associated with Hetzner Cloud infrastructure before deploying.
+
+<meta name="google-site-verification" content="QPFIQhVga-7J-fb9tUeC2dw3UqrV6HQOu4NfG0LgIkc" />
