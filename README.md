@@ -1,5 +1,11 @@
 # Hetzner Server Terraform Infrastructure
 
+## Support This Project
+
+If you find this project useful, please consider giving it a **⭐ Star** and **🔀 Fork** to show your support! Your stars help others discover this project and motivate me to continue improving it. Thank you!
+
+---
+
 Infrastructure as Code (IaC) for automated deployment of a cloud architecture on Hetzner Cloud with bastion host, isolated private network, and application servers.
 
 ## 📋 Table of Contents
@@ -1363,6 +1369,74 @@ Open an [issue](https://github.com/YOUR_USERNAME/hetzner-server-terraform/issues
 - The proposed feature
 - Use case
 - Any alternatives considered
+
+## 🚀 Future Releases
+
+The following features are planned for future releases:
+
+### VPN Access for SSH Connections
+
+Implementation of a VPN solution to provide secure access to the infrastructure:
+- **WireGuard VPN Server**: Installation and configuration on the bastion host
+- **Client Configuration**: Automatic generation of client configurations for team members
+- **Enhanced Security**: Replace direct SSH access with VPN tunnel access
+- **Benefits**:
+  - More secure authentication with VPN keys
+  - Encrypted tunnel for all traffic
+  - Better access control and logging
+  - Support for multiple team members with individual VPN profiles
+- **Implementation**: Addition of a dedicated VPN module with automated client setup scripts
+
+### Advanced Monitoring and Logging Stack
+
+Implementation of a comprehensive observability stack with Grafana, Loki, and Prometheus:
+
+#### Prometheus
+- **Metrics Collection**: System and application metrics from all servers
+- **Service Discovery**: Automatic discovery of Docker containers and services
+- **Exporters**: Node exporter, Docker exporter, MariaDB exporter, Redis exporter, RabbitMQ exporter
+- **Alerting**: AlertManager for notification rules
+- **Retention**: Configurable metrics retention period
+
+#### Loki
+- **Centralized Logging**: Aggregate logs from all servers and containers
+- **Log Sources**:
+  - System logs (syslog, systemd journals)
+  - Application logs (Nginx, PHP-FPM, MariaDB)
+  - Container logs (Docker containers)
+  - Service logs (Redis, RabbitMQ, OpenSearch)
+- **Log Retention**: Configurable retention policies
+- **Efficient Storage**: Optimized log compression and indexing
+
+#### Grafana
+- **Unified Dashboard**: Single interface for metrics and logs
+- **Pre-built Dashboards**:
+  - Infrastructure overview (CPU, memory, disk, network)
+  - Database performance (MariaDB queries, connections, slow queries)
+  - Application performance (PHP-FPM, Nginx response times)
+  - Service monitoring (Redis, RabbitMQ, OpenSearch)
+  - Log exploration and analysis
+- **Alerting**: Visual alert configuration with multiple notification channels
+- **Multi-tenancy**: Role-based access control for team members
+
+#### Implementation Details
+- **Dedicated Monitoring Server**: New server (10.0.0.8) for the monitoring stack
+- **Data Persistence**: Persistent volumes for metrics and logs
+- **High Availability**: Optional HA configuration for production environments
+- **Authentication**: SSO integration support (OAuth, LDAP)
+- **Resource Requirements**: Recommended server type cx32+ (4GB RAM minimum)
+
+### Other Planned Features
+
+- **Automated Backups**: Scheduled backups for databases and application data with rotation policies
+- **Disaster Recovery**: Automated backup restoration procedures and documentation
+- **CI/CD Integration**: Example pipelines for common CI/CD platforms (GitHub Actions, GitLab CI)
+- **Infrastructure Testing**: Automated tests for infrastructure validation (Terratest)
+- **Cost Optimization**: Terraform modules for cost analysis and optimization recommendations
+
+**Note**: These features are planned but not yet implemented. If you're interested in contributing to any of these features, please open an issue or pull request!
+
+---
 
 ## 📝 License
 

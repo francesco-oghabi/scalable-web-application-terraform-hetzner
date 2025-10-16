@@ -1,0 +1,42 @@
+# These are supported funding model platforms
+
+# GitHub Sponsors
+# Uncomment and add your GitHub username
+github: [francesco-oghabi]
+
+# Patreon
+# Uncomment and add your Patreon username
+# patreon: your-patreon-username
+
+# Open Collective
+# Uncomment and add your Open Collective username
+# open_collective: your-open-collective-username
+
+# Ko-fi
+# Uncomment and add your Ko-fi username
+# ko_fi: your-kofi-username
+
+# Tidelift
+# Uncomment and add your package name
+# tidelift: npm/package-name
+
+# Community Bridge
+# Uncomment and add your Community Bridge project name
+# community_bridge: project-name
+
+# Liberapay
+# Uncomment and add your Liberapay username
+# liberapay: your-liberapay-username
+
+# IssueHunt
+# Uncomment and add your IssueHunt username
+# issuehunt: your-issuehunt-username
+
+# Buy Me a Coffee
+# Uncomment and add your Buy Me a Coffee username
+buy_me_a_coffee: francesco-oghabi
+
+# Custom URLs
+# You can add up to 4 custom sponsorship URLs
+# Uncomment and add your custom URLs
+custom: ['https://www.paypal.me/francescooghabi']
