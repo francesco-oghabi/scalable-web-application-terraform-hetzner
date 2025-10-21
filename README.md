@@ -17,6 +17,7 @@ Infrastructure as Code (IaC) for automated deployment of a cloud architecture on
 - [Deployment](#-deployment)
 - [Connecting to Servers](#-connecting-to-servers)
 - [Accessing MariaDB Database](#-accessing-mariadb-database)
+- [Database Backup Service](#-database-backup-service)
 - [Accessing OpenSearch](#-accessing-opensearch)
 - [Accessing Redis](#-accessing-redis)
 - [Accessing RabbitMQ](#-accessing-rabbitmq)
@@ -588,6 +589,423 @@ ssh -J hetzner-bastion root@10.0.0.4 "docker exec mariadb mariadb-dump -uroot -p
 rsync -avzh -e "ssh -J hetzner-bastion" root@10.0.0.4:/tmp/dump.sql ./
 ssh -J hetzner-bastion root@10.0.0.4 "rm /tmp/dump.sql"
 ```
+
+## 💾 Database Backup Service
+
+This infrastructure includes a secure remote database backup service that allows authorized users to backup MariaDB databases through the bastion host without requiring direct database access.
+
+### Prerequisites
+
+- SSH private key for backup access (provided by administrator)
+- SSH client installed on your computer
+- Internet connection to reach the bastion host
+
+### Initial Setup
+
+#### 1. Save the SSH Key
+
+The administrator will provide you with a private SSH key. Save it securely:
+
+```bash
+# Create .ssh directory if it doesn't exist
+mkdir -p ~/.ssh
+
+# Save the key (replace with the provided content)
+nano ~/.ssh/dbbackup_key
+# Paste the private key content and save (Ctrl+X, Y, Enter)
+
+# Set correct permissions (IMPORTANT!)
+chmod 600 ~/.ssh/dbbackup_key
+
+# Verify permissions
+ls -la ~/.ssh/dbbackup_key
+# Should show: -rw------- 1 youruser youruser ...
+```
+
+#### 2. Test the Connection
+
+Verify you can connect to the service:
+
+```bash
+# Replace X.X.X.X with the bastion IP provided by administrator
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "--list-databases"
+```
+
+If everything is configured correctly, you'll see the list of available databases.
+
+### Basic Operations
+
+#### List Available Databases
+
+```bash
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "--list-databases"
+```
+
+**Example output:**
+```
+=== Available Databases ===
+production_db
+staging_db
+test_db
+```
+
+#### Execute a Backup
+
+**Simple backup (uncompressed SQL):**
+
+```bash
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "database_name" > backup.sql
+```
+
+**Example:**
+```bash
+ssh -i ~/.ssh/dbbackup_key dbbackup@192.0.2.10 "production_db" > production_backup.sql
+```
+
+**Compressed backup (recommended):**
+
+```bash
+# With gzip (fast)
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "database_name" | gzip > backup.sql.gz
+
+# With bzip2 (better compression)
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "database_name" | bzip2 > backup.sql.bz2
+```
+
+**Backup with date in filename:**
+
+```bash
+# Format: database_YYYYMMDD_HHMMSS.sql.gz
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "production_db" | \
+    gzip > "production_db_$(date +%Y%m%d_%H%M%S).sql.gz"
+```
+
+**Result:** `production_db_20250115_143045.sql.gz`
+
+#### Verify the Backup
+
+After creating a backup, verify the file was created correctly:
+
+```bash
+# Check file size
+ls -lh backup.sql.gz
+
+# For gzip files, verify integrity
+gzip -t backup.sql.gz && echo "File OK" || echo "File corrupted!"
+
+# View first lines
+zcat backup.sql.gz | head -20
+```
+
+### Automated Backups
+
+#### Bash Script for Automatic Backup
+
+Create a file `backup-db.sh`:
+
+```bash
+#!/bin/bash
+#
+# Automatic Database Backup Script
+#
+
+# Configuration
+BASTION_IP="X.X.X.X"  # Replace with your IP
+SSH_KEY="$HOME/.ssh/dbbackup_key"
+BACKUP_DIR="$HOME/database-backups"
+DATABASE="production_db"  # Replace with your database
+
+# Create backup directory if it doesn't exist
+mkdir -p "$BACKUP_DIR"
+
+# Filename with date and time
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="${BACKUP_DIR}/${DATABASE}_${TIMESTAMP}.sql.gz"
+
+# Log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting backup of $DATABASE..."
+
+# Execute backup
+if ssh -i "$SSH_KEY" dbbackup@"$BASTION_IP" "$DATABASE" | gzip > "$BACKUP_FILE"; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Backup completed: $BACKUP_FILE"
+
+    # Show size
+    SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Size: $SIZE"
+
+    # Verify integrity
+    if gzip -t "$BACKUP_FILE"; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Integrity check: OK"
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: File corrupted!"
+        exit 1
+    fi
+else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: Backup failed!"
+    exit 1
+fi
+
+# Delete backups older than 30 days
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Cleaning old backups..."
+find "$BACKUP_DIR" -name "${DATABASE}_*.sql.gz" -mtime +30 -delete
+
+# Count remaining backups
+COUNT=$(find "$BACKUP_DIR" -name "${DATABASE}_*.sql.gz" | wc -l)
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Available backups: $COUNT"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Operation completed"
+```
+
+**Make executable:**
+```bash
+chmod +x backup-db.sh
+```
+
+**Test:**
+```bash
+./backup-db.sh
+```
+
+#### Schedule with Cron
+
+**Daily backup at 2:00 AM:**
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add this line
+0 2 * * * /full/path/to/backup-db.sh >> /var/log/db-backup.log 2>&1
+```
+
+**Other useful schedules:**
+
+```bash
+# Every 6 hours
+0 */6 * * * /path/to/backup-db.sh >> /var/log/db-backup.log 2>&1
+
+# Every Sunday at 3:00 AM
+0 3 * * 0 /path/to/backup-db.sh >> /var/log/db-backup.log 2>&1
+
+# Every weekday at 11:00 PM
+0 23 * * 1-5 /path/to/backup-db.sh >> /var/log/db-backup.log 2>&1
+```
+
+### Restoring a Backup
+
+⚠️ **WARNING**: Restoring overwrites existing data!
+
+#### Local Restore
+
+If you have a local MySQL server:
+
+```bash
+# From uncompressed file
+mysql -u root -p database_name < backup.sql
+
+# From gzip compressed file
+zcat backup.sql.gz | mysql -u root -p database_name
+
+# From bzip2 compressed file
+bzcat backup.sql.bz2 | mysql -u root -p database_name
+```
+
+#### Remote Restore
+
+To restore on the server (requires administrator access):
+
+```bash
+# Contact the system administrator for restore operations
+# Provide the backup file and specify:
+# - Target database
+# - Backup date/time
+# - Reason for restore
+```
+
+### Troubleshooting
+
+#### Error: "Permission denied (publickey)"
+
+**Cause**: Incorrect SSH key permissions or key not found.
+
+**Solution**:
+```bash
+# Verify key exists
+ls -la ~/.ssh/dbbackup_key
+
+# Fix permissions
+chmod 600 ~/.ssh/dbbackup_key
+
+# Verify path in command
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "--list-databases"
+```
+
+#### Error: "Database 'xyz' does not exist"
+
+**Cause**: Database name is incorrect.
+
+**Solution**:
+```bash
+# List available databases
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "--list-databases"
+
+# Use exact name (case-sensitive!)
+```
+
+#### Error: "Database 'xyz' is not in the allowed list"
+
+**Cause**: Database exists but you're not authorized to access it.
+
+**Solution**: Contact the administrator to request access to the database.
+
+#### Very Slow Backup
+
+**Cause**: Very large database or slow connection.
+
+**Solutions**:
+```bash
+# 1. Use compression to reduce traffic
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "db" | gzip -9 > backup.sql.gz
+
+# 2. Show progress with pv
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "db" | pv | gzip > backup.sql.gz
+
+# 3. Run during off-peak hours
+```
+
+#### Corrupted Backup File
+
+**Verify integrity**:
+```bash
+# For gzip
+gzip -t backup.sql.gz
+
+# For bzip2
+bzip2 -t backup.sql.bz2
+```
+
+**If corrupted**: Re-execute the backup.
+
+### Best Practices
+
+#### 1. Backup Rotation
+
+Maintain backups for different periods:
+- **Daily**: last 7 days
+- **Weekly**: last 4 weeks
+- **Monthly**: last 12 months
+
+#### 2. Multiple Storage Locations
+
+```bash
+# Local backup
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "db" | gzip > /local/backup.sql.gz
+
+# Copy to NAS
+cp /local/backup.sql.gz /mnt/nas/backups/
+
+# Upload to cloud (AWS S3, Google Drive, etc.)
+aws s3 cp /local/backup.sql.gz s3://mybucket/backups/
+```
+
+#### 3. Test Backups
+
+Periodically verify backups can be restored:
+
+```bash
+# 1. Create test database
+mysql -u root -p -e "CREATE DATABASE test_restore"
+
+# 2. Restore backup
+zcat backup.sql.gz | mysql -u root -p test_restore
+
+# 3. Verify data
+mysql -u root -p test_restore -e "SHOW TABLES; SELECT COUNT(*) FROM users;"
+
+# 4. Delete test database
+mysql -u root -p -e "DROP DATABASE test_restore"
+```
+
+#### 4. Monitoring
+
+Regularly check:
+- ✅ Backups completed successfully
+- ✅ Backup size (sudden increase?)
+- ✅ Available disk space
+- ✅ Execution time
+
+#### 5. Security
+
+- 🔒 Keep the SSH private key secure
+- 🔒 Don't share the SSH key
+- 🔒 Don't commit the key to Git/repositories
+- 🔒 Encrypt backups if they contain sensitive data:
+
+```bash
+# Encrypted backup with GPG
+ssh -i ~/.ssh/dbbackup_key dbbackup@X.X.X.X "db" | \
+    gzip | \
+    gpg --symmetric --cipher-algo AES256 > backup.sql.gz.gpg
+
+# Decrypt
+gpg --decrypt backup.sql.gz.gpg | gunzip | mysql -u root -p db_name
+```
+
+### Advanced Scripts
+
+#### Multiple Database Backup
+
+```bash
+#!/bin/bash
+BASTION_IP="X.X.X.X"
+DATABASES=("db1" "db2" "db3")
+BACKUP_DIR="$HOME/backups"
+
+for db in "${DATABASES[@]}"; do
+    echo "Backing up $db..."
+    ssh -i ~/.ssh/dbbackup_key dbbackup@"$BASTION_IP" "$db" | \
+        gzip > "$BACKUP_DIR/${db}_$(date +%Y%m%d).sql.gz"
+done
+```
+
+#### Email Notification
+
+```bash
+#!/bin/bash
+# Add to end of backup script
+
+if [ $? -eq 0 ]; then
+    echo "Backup completed successfully" | \
+        mail -s "✅ DB Backup OK" admin@example.com
+else
+    echo "Backup FAILED!" | \
+        mail -s "❌ DB Backup FAILED" admin@example.com
+fi
+```
+
+### FAQ
+
+**Q: Can I backup multiple databases simultaneously?**
+A: No, you must execute one backup at a time. Use a script to automate multiple backups.
+
+**Q: How long does a backup take?**
+A: Depends on database size and connection speed. 1GB database: approximately 2-5 minutes.
+
+**Q: Can I interrupt a running backup?**
+A: Yes, press Ctrl+C. The backup file will be incomplete and should be deleted.
+
+**Q: Do backups include stored procedures and triggers?**
+A: Yes, backups include routines, triggers, and events.
+
+**Q: Can I modify which tables to include in the backup?**
+A: No, backups always include the entire database. Contact administrator for specific needs.
+
+### Support
+
+For technical issues or access requests to new databases, contact:
+
+- 📧 Email: admin@example.com
+- 💬 Support ticket system
 
 ## 🔍 Accessing OpenSearch
 
