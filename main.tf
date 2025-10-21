@@ -180,6 +180,23 @@ module "rabbitmq" {
   ]
 }
 
+module "database_backup" {
+  source = "./modules/database-backup"
+
+  bastion_public_ip             = hcloud_server.bastion.ipv4_address
+  database_private_ip           = var.database_static_ip
+  mariadb_readonly_user         = var.mariadb_readonly_user
+  mariadb_readonly_password     = var.mariadb_readonly_password
+  backup_user_public_key        = var.backup_user_public_key
+  allowed_databases             = var.allowed_databases
+  ssh_bastion_private_key_path  = var.ssh_bastion_private_key_path
+
+  depends_on = [
+    null_resource.wait_for_bastion_cloud_init,
+    module.database
+  ]
+}
+
 
 # (Optional) Reboot all servers after infrastructure is fully deployed
 # Uncomment this resource if you want automatic reboot after deployment
