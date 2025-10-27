@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://francesco-oghabi.github.io/scalable-web-application-terraform-hetzner/sitemap.xml
